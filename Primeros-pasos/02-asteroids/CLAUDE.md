@@ -24,4 +24,4 @@ All game logic lives in a single script, `game.js`, loaded by `index.html` onto 
 
 ## Note
 
-README mentions power-ups and "shooting star" asteroids, but they are not implemented in `game.js`.
+README mentions "shooting star" asteroids, but they are not implemented in `game.js`. The triple-shot power-up is implemented (`PowerUp` class, `tripleShotTimer`; spawns at most once per level when an asteroid is destroyed).
