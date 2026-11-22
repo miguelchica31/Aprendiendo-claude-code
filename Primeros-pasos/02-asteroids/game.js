@@ -65,12 +65,17 @@ class Bullet {
 const RADII  = [0, 16, 30, 50];   // por tamaño 1, 2, 3
 const SPEEDS = [0, 85, 55, 32];   // velocidad base por tamaño
 const POINTS = [0, 100, 50, 20];  // puntos por tamaño
-const POWERUP_CHANCE  = 0.15; // probabilidad de soltar el ítem al destruir un asteroide
+const POWERUP_RULES = {                // chance = prob. por asteroide destruido; max = apariciones por nivel
+  triple: { chance: 0.15, max: 3 },
+  shield: { chance: 0.15, max: 3 },
+  nova:   { chance: 0.05, max: 1 },    // ítem escaso: una sola vez por nivel
+};
 const POWERUP_TTL     = 8;    // s que el ítem flota antes de desaparecer
 const TRIPLE_DURATION = 8;    // s que dura el disparo triple
 const TRIPLE_SPREAD   = 0.22; // radianes entre balas del abanico
 const SHIELD_DURATION = 5;    // s que dura el escudo
 const SHIELD_RADIUS   = 22;   // radio del círculo de energía (la nave mide 12)
+const NOVA_FLASH      = 0.35; // s que dura el destello blanco de la bomba
 
 // Forma fija de asteroide grande (trazada desde la imagen de referencia, 400x400).
 // Se centra en su promedio y se normaliza para que el vértice más lejano valga 1.
@@ -301,9 +306,15 @@ class PowerUp {
         ctx.moveTo(0, 4);
         ctx.lineTo(Math.cos(a) * 7, 4 + Math.sin(a) * 9);
       }
-    } else {
+    } else if (this.type === 'shield') {
       ctx.moveTo(6, 0);
       ctx.arc(0, 0, 6, 0, Math.PI * 2);   // anillo interior = escudo
+    } else {                               // nova: destello de 8 rayos
+      for (let i = 0; i < 8; i++) {
+        const a = i * Math.PI / 4;
+        ctx.moveTo(Math.cos(a) * 2, Math.sin(a) * 2);
+        ctx.lineTo(Math.cos(a) * 7, Math.sin(a) * 7);
+      }
     }
     ctx.stroke();
     ctx.restore();
@@ -316,9 +327,10 @@ let score, lives, level;
 let state;      // 'playing' | 'dead' | 'gameover'
 let deadTimer;
 let powerUps;         // ítems en pantalla (triple y escudo pueden coexistir)
-let spawnedTypes;     // { triple, shield }: true si ese tipo ya apareció en este nivel
+let spawnCounts;      // { triple, shield, nova }: cuántas veces apareció cada tipo en este nivel
 let tripleShotTimer;  // segundos restantes del disparo triple
 let shieldTimer;      // segundos restantes del escudo
+let novaFlash;        // segundos restantes del destello de la bomba
 
 function spawnAsteroids(count) {
   const SAFE_DIST = 130;
@@ -342,9 +354,10 @@ function initGame() {
   level  = 1;
   state  = 'playing';
   powerUps        = [];
-  spawnedTypes    = { triple: false, shield: false };
+  spawnCounts     = { triple: 0, shield: 0, nova: 0 };
   tripleShotTimer = 0;
   shieldTimer     = 0;
+  novaFlash       = 0;
   spawnAsteroids(4);
 }
 
@@ -353,7 +366,7 @@ function nextLevel() {
   bullets   = [];
   particles = [];
   powerUps        = [];
-  spawnedTypes    = { triple: false, shield: false };
+  spawnCounts     = { triple: 0, shield: 0, nova: 0 };
   tripleShotTimer = 0;
   shieldTimer     = 0;
   ship.reset();
@@ -362,6 +375,15 @@ function nextLevel() {
 
 function explode(x, y, count = 8) {
   for (let i = 0; i < count; i++) particles.push(new Particle(x, y));
+}
+
+function detonateNova() {
+  for (const a of asteroids) {
+    score += POINTS[a.size];
+    explode(a.x, a.y, a.size * 5);
+  }
+  asteroids = [];          // se destruyen todos, sin dividirse
+  novaFlash = NOVA_FLASH;
 }
 
 function killShip() {
@@ -421,10 +443,11 @@ function update(dt) {
         score += POINTS[a.size];
         explode(a.x, a.y, a.size * 5);
         newAsteroids.push(...a.split());
-        for (const type of ['triple', 'shield']) {
-          if (!spawnedTypes[type] && Math.random() < POWERUP_CHANCE) {
+        for (const type in POWERUP_RULES) {
+          const r = POWERUP_RULES[type];
+          if (spawnCounts[type] < r.max && Math.random() < r.chance) {
             powerUps.push(new PowerUp(a.x, a.y, type));
-            spawnedTypes[type] = true;
+            spawnCounts[type]++;
           }
         }
       }
@@ -438,7 +461,8 @@ function update(dt) {
     p.update(dt);
     if (!p.dead && dist(ship, p) < ship.radius + p.radius) {
       if (p.type === 'triple') tripleShotTimer = TRIPLE_DURATION;
-      else shieldTimer = SHIELD_DURATION;
+      else if (p.type === 'shield') shieldTimer = SHIELD_DURATION;
+      else detonateNova();
       explode(p.x, p.y, 6);
       p.dead = true;
     }
@@ -446,6 +470,7 @@ function update(dt) {
   powerUps = powerUps.filter(p => !p.dead);
   if (tripleShotTimer > 0) tripleShotTimer -= dt;
   if (shieldTimer > 0) shieldTimer -= dt;
+  if (novaFlash > 0) novaFlash -= dt;
 
   // Nave vs asteroide
   if (ship.invincible <= 0) {
@@ -485,16 +510,22 @@ function drawLifeIcon(x, y) {
   ctx.restore();
 }
 
+function drawTimerBar(label, t, total, y) {
+  ctx.fillText(`${label} ${Math.ceil(t)}s`, 14, y);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = '#fff';
+  ctx.strokeRect(14.5, y + 5.5, 100, 5);                       // marco de la barra
+  ctx.fillRect(14, y + 5, 101 * Math.max(t, 0) / total, 6);    // se vacía con el tiempo
+}
+
 function drawHUD() {
   ctx.fillStyle = '#fff';
   ctx.font = '15px monospace';
 
   ctx.textAlign = 'left';
   ctx.fillText(`SCORE  ${score}`, 14, 26);
-  if (tripleShotTimer > 0)
-    ctx.fillText(`TRIPLE ${Math.ceil(tripleShotTimer)}s`, 14, 46);
-  if (shieldTimer > 0)
-    ctx.fillText(`ESCUDO ${Math.ceil(shieldTimer)}s`, 14, 66);
+  if (tripleShotTimer > 0) drawTimerBar('TRIPLE', tripleShotTimer, TRIPLE_DURATION, 46);
+  if (shieldTimer > 0)     drawTimerBar('ESCUDO', shieldTimer, SHIELD_DURATION, 72);
 
   ctx.textAlign = 'center';
   ctx.fillText(`NIVEL ${level}`, W / 2, 26);
@@ -533,6 +564,10 @@ function draw() {
   powerUps.forEach(p => p.draw());
   ship.draw();
   if (shieldTimer > 0 && !ship.dead) drawShield();
+  if (novaFlash > 0) {
+    ctx.fillStyle = `rgba(255,255,255,${(novaFlash / NOVA_FLASH * 0.6).toFixed(2)})`;
+    ctx.fillRect(0, 0, W, H);
+  }
 
   drawHUD();
 

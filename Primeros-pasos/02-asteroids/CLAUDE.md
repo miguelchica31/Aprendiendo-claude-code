@@ -24,4 +24,4 @@ All game logic lives in a single script, `game.js`, loaded by `index.html` onto 
 
 ## Note
 
-README mentions "shooting star" asteroids, but they are not implemented in `game.js`. Two power-ups are implemented via `PowerUp` (`type` = 'triple' | 'shield', timers `tripleShotTimer` / `shieldTimer`, on-screen items in the `powerUps` array). Each type rolls `POWERUP_CHANCE` independently when an asteroid is destroyed and spawns at most once per level (`spawnedTypes`), so both can appear in the same level.
+README mentions "shooting star" asteroids, but they are not implemented in `game.js`. Three power-ups are implemented via `PowerUp` (`type` = 'triple' | 'shield' | 'nova'; on-screen items in `powerUps`). Spawn odds and per-level caps live in `POWERUP_RULES` (`spawnCounts` tracks appearances; triple/shield up to 3 per level, nova once). Triple/shield use timers (`tripleShotTimer`/`shieldTimer`, shown in the HUD with `drawTimerBar`); nova has no state: picking it up calls `detonateNova()` immediately.
